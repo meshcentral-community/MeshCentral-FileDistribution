@@ -105,7 +105,7 @@ module.exports.filedist = function (parent) {
     };
     
     obj.resetQueueTimer = function() {
-        clearTimeout(obj.intervalTimer);
+        if (obj.intervalTimer) clearInterval(obj.intervalTimer);
         obj.intervalTimer = setInterval(obj.checkFileSizes, 1 * 60 * 1000 * 20); // every 20 minutes
     };
     
@@ -120,7 +120,7 @@ module.exports.filedist = function (parent) {
             tabTitle: 'File Distribution ',
             tabId: 'pluginFileDist'
         });
-        QA('pluginFileDist', '<iframe id="pluginIframeFileDist" style="width: 100%; height: 800px;" scrolling="no" frameBorder=0 src="/pluginadmin.ashx?pin=filedist&user=1&node='+ currentNode._id +'" />');
+        QA('pluginFileDist', '<iframe id="pluginIframeFileDist" style="width: 100%; height: 800px;" scrolling="no" frameBorder=0 src="/pluginadmin.ashx?pin=filedist&user=1&node='+ encodeURIComponent(currentNode._id) +'" />');
     };
     
     obj.mapData = function (message) {
@@ -186,14 +186,29 @@ module.exports.filedist = function (parent) {
             try {
                 fs.statSync(path);
                 var readStream = fs.createReadStream(path, { encoding: "hex" });
+                readStream.on('error', function (err) {
+                    obj.debug('PLUGIN', PLUGIN_C, 'Error reading file stream for ' + comp + ': ' + err.message);
+                });
                 readStream.on('data', function (chunk) {
                     command.data = chunk;
-                    obj.meshServer.webserver.wsagents[comp].send(JSON.stringify(command)); 
-                })
-                readStream.on('end', function (chunk) {
+                    try {
+                        if (obj.meshServer.webserver && obj.meshServer.webserver.wsagents && obj.meshServer.webserver.wsagents[comp]) {
+                            obj.meshServer.webserver.wsagents[comp].send(JSON.stringify(command));
+                        }
+                    } catch (sendErr) {
+                        obj.debug('PLUGIN', PLUGIN_C, 'Error sending chunk to ' + comp + ': ' + sendErr.message);
+                    }
+                });
+                readStream.on('end', function () {
                     command.data = 'END';
-                    obj.meshServer.webserver.wsagents[comp].send(JSON.stringify(command)); 
-                })
+                    try {
+                        if (obj.meshServer.webserver && obj.meshServer.webserver.wsagents && obj.meshServer.webserver.wsagents[comp]) {
+                            obj.meshServer.webserver.wsagents[comp].send(JSON.stringify(command));
+                        }
+                    } catch (sendErr) {
+                        obj.debug('PLUGIN', PLUGIN_C, 'Error sending END to ' + comp + ': ' + sendErr.message);
+                    }
+                });
             } catch (e) {
                 obj.debug('PLUGIN', PLUGIN_C, 'Could not send file (' + serverpath + ') to ' + comp + '. File may be missing. Info: ' + e.stack);
             }
